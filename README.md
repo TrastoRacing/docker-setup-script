@@ -4,7 +4,7 @@ Script automatizado para instalar Docker Engine en Ubuntu/Debian con configuraci
 
 ## Instalación rápida
 ```
-curl -O https://raw.githubusercontent.com/TrastoRacing/REPO/main/install_docker.sh
+curl -O https://raw.githubusercontent.com/TrastoRacing/docker-setup-script/main/install_docker.sh
 chmod +x install_docker.sh
 sudo ./install_docker.sh
 newgrp docker
