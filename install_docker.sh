@@ -11,6 +11,13 @@ set -euo pipefail
 
 echo "=== Instalación de Docker Engine ==="
 
+# ── Guard: idempotencia ───────────────────────────────────────────
+if command -v docker &>/dev/null; then
+  echo "⚠  Docker ya está instalado: $(docker --version)"
+  echo "   Para reinstalar, elimina primero los paquetes existentes."
+  exit 0
+fi
+
 # ── Detección de distribución ──────────────────────────────────────
 if [ ! -f /etc/os-release ]; then
   echo "ERROR: No se puede detectar la distribución (falta /etc/os-release)."
@@ -70,7 +77,8 @@ case "$ID_LOWER" in
       DISTRO_FAMILY="zypper"
     else
       echo "ERROR: Distribución no soportada: ${PRETTY_NAME:-$ID}"
-      echo "Soportadas: Ubuntu, Debian, Linux Mint, Fedora, CentOS, RHEL, Rocky, AlmaLinux, openSUSE, SLES"
+      echo "Soportadas: Ubuntu, Debian, Linux Mint, Fedora, CentOS, RHEL,"
+      echo "            Rocky Linux, AlmaLinux, openSUSE, SLES"
       exit 1
     fi
     ;;
@@ -88,22 +96,36 @@ case "$DISTRO_FAMILY" in
       echo "ERROR: No se pudo determinar el codename de la distribución."
       exit 1
     fi
+    # Eliminar paquetes conflictivos
+    for pkg in docker.io docker-doc docker-compose docker-compose-v2 \
+                podman-docker containerd runc; do
+      sudo apt-get remove -y "$pkg" 2>/dev/null || true
+    done
     sudo apt-get update -qq
     sudo apt-get install -y ca-certificates curl
     sudo install -m 0755 -d /etc/apt/keyrings
     sudo curl -fsSL "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/gpg" \
       -o /etc/apt/keyrings/docker.asc
     sudo chmod a+r /etc/apt/keyrings/docker.asc
-    DOCKER_REPO_LINE="deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${DOCKER_REPO_DISTRO} ${CODENAME} stable"
-    echo "$DOCKER_REPO_LINE" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    _ARCH="$(dpkg --print-architecture)"
+    _KEYRING="signed-by=/etc/apt/keyrings/docker.asc"
+    _REPO_URL="https://download.docker.com/linux/${DOCKER_REPO_DISTRO}"
+    DOCKER_REPO_LINE="deb [arch=${_ARCH} ${_KEYRING}] ${_REPO_URL} ${CODENAME} stable"
+    echo "$DOCKER_REPO_LINE" \
+      | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
     sudo apt-get update -qq
     ;;
 
   dnf)
+    # Eliminar paquetes conflictivos
+    sudo dnf remove -y docker docker-client docker-client-latest \
+      docker-common docker-latest docker-latest-logrotate \
+      docker-logrotate docker-engine 2>/dev/null || true
     sudo dnf -y install dnf-plugins-core
     # Compatibilidad con dnf5 (Fedora 41+) y dnf3
     if ! sudo dnf config-manager --add-repo \
-        "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/docker-ce.repo" 2>/dev/null; then
+        "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/docker-ce.repo" \
+        2>/dev/null; then
       sudo dnf-3 config-manager --add-repo \
         "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/docker-ce.repo"
     fi
@@ -111,7 +133,8 @@ case "$DISTRO_FAMILY" in
 
   zypper)
     # Repo oficial Docker para SLES; compatible con openSUSE Leap/Tumbleweed
-    sudo zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo \
+    sudo zypper addrepo \
+      https://download.docker.com/linux/sles/docker-ce.repo \
       || sudo zypper modifyrepo -e docker-ce-stable
     sudo zypper --gpg-auto-import-keys refresh
     ;;
