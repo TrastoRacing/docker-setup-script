@@ -1,6 +1,6 @@
 # Docker Engine - Script de Instalación
 
-Script automatizado para instalar Docker Engine en Ubuntu/Debian con configuración optimizada.
+Script automatizado para instalar Docker Engine en GNU/Linux con configuración optimizada.
 
 ## Instalación rápida
 ```
