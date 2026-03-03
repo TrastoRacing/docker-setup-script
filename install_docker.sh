@@ -4,32 +4,139 @@
 # ║  Script:   install_docker.sh                                        ║
 # ║  Autor:    TrastoTech                                               ║
 # ║  Descripción: Instalación automatizada de Docker Engine             ║
-# ║               con configuración de log rotation y usuario non-root  ║
+# ║               con detección de distro, log rotation y usuario       ║
+# ║               non-root. Soporta APT, DNF y Zypper.                 ║
 # ╚════════════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
 echo "=== Instalación de Docker Engine ==="
 
-# 1. Dependencias y repositorio
+# ── Detección de distribución ──────────────────────────────────────
+if [ ! -f /etc/os-release ]; then
+  echo "ERROR: No se puede detectar la distribución (falta /etc/os-release)."
+  exit 1
+fi
+
+. /etc/os-release
+ID_LOWER="${ID,,}"
+ID_LIKE_LOWER="${ID_LIKE:-}"
+ID_LIKE_LOWER="${ID_LIKE_LOWER,,}"
+
+echo "  Distro detectada: ${PRETTY_NAME:-$ID}"
+
+DISTRO_FAMILY=""
+DOCKER_REPO_DISTRO=""
+CODENAME=""
+
+case "$ID_LOWER" in
+  ubuntu|linuxmint|pop)
+    DISTRO_FAMILY="apt"
+    DOCKER_REPO_DISTRO="ubuntu"
+    CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+    ;;
+  debian|raspbian)
+    DISTRO_FAMILY="apt"
+    DOCKER_REPO_DISTRO="$ID_LOWER"
+    CODENAME="${VERSION_CODENAME:-}"
+    ;;
+  fedora)
+    DISTRO_FAMILY="dnf"
+    DOCKER_REPO_DISTRO="fedora"
+    ;;
+  centos|rhel|rocky|almalinux)
+    DISTRO_FAMILY="dnf"
+    DOCKER_REPO_DISTRO="centos"
+    ;;
+  opensuse*|sles)
+    DISTRO_FAMILY="zypper"
+    ;;
+  *)
+    # Fallback por ID_LIKE (Elementary, Kali, Zorin, etc.)
+    if echo "$ID_LIKE_LOWER" | grep -q "ubuntu"; then
+      DISTRO_FAMILY="apt"
+      DOCKER_REPO_DISTRO="ubuntu"
+      CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+    elif echo "$ID_LIKE_LOWER" | grep -q "debian"; then
+      DISTRO_FAMILY="apt"
+      DOCKER_REPO_DISTRO="debian"
+      CODENAME="${VERSION_CODENAME:-}"
+    elif echo "$ID_LIKE_LOWER" | grep -q "fedora"; then
+      DISTRO_FAMILY="dnf"
+      DOCKER_REPO_DISTRO="fedora"
+    elif echo "$ID_LIKE_LOWER" | grep -qE "(rhel|centos)"; then
+      DISTRO_FAMILY="dnf"
+      DOCKER_REPO_DISTRO="centos"
+    elif echo "$ID_LIKE_LOWER" | grep -qE "(suse|sles)"; then
+      DISTRO_FAMILY="zypper"
+    else
+      echo "ERROR: Distribución no soportada: ${PRETTY_NAME:-$ID}"
+      echo "Soportadas: Ubuntu, Debian, Linux Mint, Fedora, CentOS, RHEL, Rocky, AlmaLinux, openSUSE, SLES"
+      exit 1
+    fi
+    ;;
+esac
+
+echo "  Familia de paquetes: ${DISTRO_FAMILY^^}${DOCKER_REPO_DISTRO:+ -> repo: $DOCKER_REPO_DISTRO}"
+
+# ── 1. Dependencias y repositorio ─────────────────────────────────
 echo "[1/5] Configurando repositorio..."
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+case "$DISTRO_FAMILY" in
 
-sudo apt-get update
+  apt)
+    if [ -z "$CODENAME" ]; then
+      echo "ERROR: No se pudo determinar el codename de la distribución."
+      exit 1
+    fi
+    sudo apt-get update -qq
+    sudo apt-get install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/gpg" \
+      -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    DOCKER_REPO_LINE="deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${DOCKER_REPO_DISTRO} ${CODENAME} stable"
+    echo "$DOCKER_REPO_LINE" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt-get update -qq
+    ;;
 
-# 2. Instalar Docker Engine
+  dnf)
+    sudo dnf -y install dnf-plugins-core
+    # Compatibilidad con dnf5 (Fedora 41+) y dnf3
+    if ! sudo dnf config-manager --add-repo \
+        "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/docker-ce.repo" 2>/dev/null; then
+      sudo dnf-3 config-manager --add-repo \
+        "https://download.docker.com/linux/${DOCKER_REPO_DISTRO}/docker-ce.repo"
+    fi
+    ;;
+
+  zypper)
+    # Repo oficial Docker para SLES; compatible con openSUSE Leap/Tumbleweed
+    sudo zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo \
+      || sudo zypper modifyrepo -e docker-ce-stable
+    sudo zypper --gpg-auto-import-keys refresh
+    ;;
+
+esac
+
+# ── 2. Instalar Docker Engine ──────────────────────────────────────
 echo "[2/5] Instalando Docker..."
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# 3. Configurar log rotation (ANTES de iniciar)
+case "$DISTRO_FAMILY" in
+  apt)
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+    ;;
+  dnf)
+    sudo dnf install -y docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+    ;;
+  zypper)
+    sudo zypper install -y docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+    ;;
+esac
+
+# ── 3. Configurar log rotation (ANTES de iniciar) ─────────────────
 echo "[3/5] Configurando log rotation..."
 sudo mkdir -p /etc/docker
 sudo tee /etc/docker/daemon.json > /dev/null <<EOF
@@ -42,17 +149,16 @@ sudo tee /etc/docker/daemon.json > /dev/null <<EOF
 }
 EOF
 
-# 4. Habilitar y arrancar Docker
+# ── 4. Habilitar y arrancar Docker ────────────────────────────────
 echo "[4/5] Iniciando Docker..."
 sudo systemctl enable --now docker.service containerd.service
 
-# 5. Añadir usuario al grupo docker
+# ── 5. Añadir usuario al grupo docker ────────────────────────────
 echo "[5/5] Configurando usuario..."
 sudo groupadd -f docker
-ACTUAL_USER=${SUDO_USER:-$USER}
+ACTUAL_USER="${SUDO_USER:-$USER}"
 sudo usermod -aG docker "$ACTUAL_USER"
 
-# Aviso si se ejecuta como root
 if [ "$ACTUAL_USER" = "root" ]; then
   echo "Atención: has ejecutado el script como root."
   echo "Añade manualmente tu usuario real al grupo docker con:"
@@ -61,6 +167,7 @@ fi
 
 echo ""
 echo "✓ Instalación completada"
+echo "✓ Distro: ${PRETTY_NAME:-$ID}"
 echo "✓ Usuario $ACTUAL_USER añadido al grupo docker"
 echo ""
 echo "Cierra sesión y vuelve a entrar, o ejecuta: newgrp docker"
