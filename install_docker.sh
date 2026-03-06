@@ -13,8 +13,8 @@ echo "=== Instalación de Docker Engine ==="
 
 # ── Guard: idempotencia ───────────────────────────────────────────
 if command -v docker &>/dev/null; then
-  echo "⚠  Docker ya está instalado: $(docker --version)"
-  echo "   Para reinstalar, elimina primero los paquetes existentes."
+  echo "Docker ya está instalado: $(docker --version)"
+  echo " Para reinstalar, elimina primero los paquetes existentes."
   exit 0
 fi
 
@@ -29,7 +29,7 @@ ID_LOWER="${ID,,}"
 ID_LIKE_LOWER="${ID_LIKE:-}"
 ID_LIKE_LOWER="${ID_LIKE_LOWER,,}"
 
-echo "  Distro detectada: ${PRETTY_NAME:-$ID}"
+echo "Distro detectada: ${PRETTY_NAME:-$ID}"
 
 DISTRO_FAMILY=""
 DOCKER_REPO_DISTRO=""
@@ -78,13 +78,13 @@ case "$ID_LOWER" in
     else
       echo "ERROR: Distribución no soportada: ${PRETTY_NAME:-$ID}"
       echo "Soportadas: Ubuntu, Debian, Linux Mint, Fedora, CentOS, RHEL,"
-      echo "            Rocky Linux, AlmaLinux, openSUSE, SLES"
+      echo " Rocky Linux, AlmaLinux, openSUSE, SLES"
       exit 1
     fi
     ;;
 esac
 
-echo "  Familia de paquetes: ${DISTRO_FAMILY^^}${DOCKER_REPO_DISTRO:+ -> repo: $DOCKER_REPO_DISTRO}"
+echo "Familia de paquetes: ${DISTRO_FAMILY^^}${DOCKER_REPO_DISTRO:+ -> repo: $DOCKER_REPO_DISTRO}"
 
 # ── 1. Dependencias y repositorio ─────────────────────────────────
 echo "[1/5] Configurando repositorio..."
@@ -189,9 +189,9 @@ if [ "$ACTUAL_USER" = "root" ]; then
 fi
 
 echo ""
-echo "✓ Instalación completada"
-echo "✓ Distro: ${PRETTY_NAME:-$ID}"
-echo "✓ Usuario $ACTUAL_USER añadido al grupo docker"
+echo "Instalación completada"
+echo "Distro: ${PRETTY_NAME:-$ID}"
+echo "Usuario $ACTUAL_USER añadido al grupo docker"
 echo ""
 echo "Cierra sesión y vuelve a entrar, o ejecuta: newgrp docker"
 echo ""
